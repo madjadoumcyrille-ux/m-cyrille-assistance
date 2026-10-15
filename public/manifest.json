@@ -1,0 +1,9 @@
+{
+  "name": "M. Cyrille assistance",
+  "short_name": "M Cyrille AI",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#0b1020",
+  "theme_color": "#101a35",
+  "description": "Personal multilingual AI assistant"
+}
