@@ -3,16 +3,28 @@ const express = require("express");
 const path = require("path");
 const app = express();
 app.use(express.json({ limit: "1mb" }));
+// Avoid stale browser/proxy responses while diagnosing the live deployment.
+app.use((req, res, next) => {
+  res.setHeader("Cache-Control", "no-store, max-age=0");
+  next();
+});
 app.use(express.static(path.join(__dirname, "public")));
 
-app.get("/api/status", (_req, res) => res.json({ aiConfigured: Boolean(process.env.OPENAI_API_KEY) }));
+app.get("/api/status", (_req, res) => res.json({
+  aiConfigured: Boolean(process.env.OPENAI_API_KEY),
+  build: "live-ai-check-2026-10-15"
+}));
 
 app.post("/api/chat", async (req, res) => {
   const { messages = [], language = "English" } = req.body || {};
   if (!Array.isArray(messages) || !messages.length) return res.status(400).json({ error: "Please enter a message." });
   const apiKey = process.env.OPENAI_API_KEY;
   const last = String(messages[messages.length - 1]?.content || "").slice(0, 6000);
-  if (!apiKey) return res.json({ mode: "demo", reply: demoReply(last, language) });
+  console.log("[chat] request", JSON.stringify({ keyConfigured: Boolean(apiKey), language, messageCount: messages.length }));
+  if (!apiKey) {
+    console.warn("[chat] OPENAI_API_KEY is missing on the chat request");
+    return res.json({ mode: "demo", reply: demoReply(last, language) });
+  }
   try {
     const safeMessages = messages.slice(-16).map(m => ({ role: m.role === "assistant" ? "assistant" : "user", content: String(m.content || "").slice(0, 6000) }));
     const response = await fetch("https://api.openai.com/v1/chat/completions", {
@@ -24,9 +36,14 @@ app.post("/api/chat", async (req, res) => {
       ] })
     });
     const data = await response.json();
-    if (!response.ok) return res.status(response.status).json({ error: data?.error?.message || "AI request failed. Check the server API key, model, and account." });
+    if (!response.ok) {
+      console.error("[chat] OpenAI API error", response.status, data?.error?.message || "Unknown API error");
+      return res.status(response.status).json({ error: data?.error?.message || "AI request failed. Check the server API key, model, and account." });
+    }
+    console.log("[chat] OpenAI response succeeded");
     return res.json({ mode: "live", reply: data?.choices?.[0]?.message?.content || "I couldn't generate a reply." });
-  } catch {
+  } catch (error) {
+    console.error("[chat] Connection error", error?.message || "Unknown error");
     return res.status(500).json({ error: "Could not contact the AI service. Check the server connection and logs." });
   }
 });
